@@ -1,0 +1,9 @@
+{
+    "path":  "D:\\.A2\\GEMNI-V2\\AdvancedMemoryEngine-v0.5.0\\engine\\build\\ame-browser-host.exe",
+    "description":  "AME 0.3 - Collegamento locale Chrome",
+    "name":  "it.ame.browser",
+    "allowed_origins":  [
+                            "chrome-extension://gckcbijchchbeeijjcmgaiifcchhhbjl/"
+                        ],
+    "type":  "stdio"
+}

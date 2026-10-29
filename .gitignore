@@ -1,0 +1,29 @@
+# AdvancedMemoryEngine - Git Ignore Configuration
+
+# Intermediate Compiler & Build Artifacts
+*.obj
+*.pdb
+*.exp
+*.lib
+*.ilk
+
+# IDE & Editor files
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Ephemeral Reports & Diagnostic Exports
+engine/reports/agent/*
+engine/reports/*.log
+engine/reports/*.json
+engine/reports/*.zip
+engine/exports/*
+*.tmp
+*.temp
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

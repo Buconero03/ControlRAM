@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "AME — Firefox (prova locale)",
+  "version": "0.5.0",
+  "description": "Scaricamento manuale di schede dalla memoria, tramite il tuo hub Windows AME.",
+  "permissions": [
+    "tabs",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "incognito": "not_allowed",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ame@advancedmemoryengine.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

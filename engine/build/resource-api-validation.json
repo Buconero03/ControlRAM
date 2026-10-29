@@ -1,0 +1,20 @@
+{
+    "tested_utc":  "2026-10-26T00:05:47.3022074Z",
+    "api_revision":  "R1",
+    "source_hashes":  {
+                          "src/resource_api.cpp":  "F93BE3D4BB6CA57DA1D58D2BE66209CA5F8F6D1A38F0D8E7CACED2B7BAFA34B2",
+                          "examples/resource_api_demo.cpp":  "13CFFEE59B9B35164877E31A3D2BAAFCD2D8EF9EFD72FBCAE4CF2F8EC5B04081",
+                          "src/resource_analysis.hpp":  "3B273B2E4048257F32C26B728EDAB3FEEE220FF415EECEE0D881E8477D74C2D5",
+                          "tests/resource_analysis_tests.cpp":  "A88F479263D5EF39E124B1B4D47F8BD395E28ED174B1C8D0995A60195FE79809",
+                          "scripts/build-resource-api-msvc.cmd":  "582542666B0D7E626FE23FF53EFED223296550170614F1CB7200F82F3038DF88",
+                          "sdk/ame_resource_api.h":  "7E7378B6AAADF959DA10C04731CA70B28D05B85ED948E619718AD200D92E8304",
+                          "build-resource-api.ps1":  "83913D8FA1776F1F843BE44D149A4C0A4894600E1B0721A25B1382CA9028F577",
+                          "src/resource_trace.hpp":  "1B8AFAF33EC9668F8AF9776B96A8C4CCC48BF15E59ADCA2A2EF2EB611D66A374"
+                      },
+    "artifact_hashes":  {
+                            "build/ame-resource-analysis-tests.exe":  "32012D21051C64253003258B668550184E5A24DB322D70E85C0C50F69F18AC6D",
+                            "build/ame-resource-demo.exe":  "9DD02524FF8D36CD01504B8D611862D1448AD15EC0115CCF270640698EED366E",
+                            "build/ame-resource-api.dll":  "CCCAE8113B4900CAAB8ACAABEA0C5F807169B633AA0B83F22B870DA61F74CC12"
+                        },
+    "abi_version":  1
+}

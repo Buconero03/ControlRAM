@@ -1,0 +1,10 @@
+{
+  "pid": 6,
+  "cache_before_bytes": 134217728,
+  "cache_after_bytes": 67108864,
+  "released_cache_bytes": 67108864,
+  "process_still_running": true,
+  "windows_before": null,
+  "windows_after": null,
+  "test_platform": "Linux; Windows counters not run"
+}

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "AME — Schede ricaricabili",
+  "version": "0.5.0",
+  "minimum_chrome_version": "121",
+  "description": "Scaricamento manuale di schede dalla memoria, tramite il tuo hub Windows AME.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyiLpTcqfFWSSlZEDyCXBpimKCi8of+m53hoKhiuFkEruGWygkmgrBm3hUm5TRauzE0FFo9ThHWNgQdgLsJfs/F+tB8Ue9dF8/iW6PmZw3H5Vkm8VBcLKOXO+A7sehPKKnj63NfZFHjO1iJWsPM8ZX2FZdPvgZ9TqCQXTKhPHMt+VcxcM+90VZPtLdyhYbSRvLht4wwZoY4+t7AE+BnJ/1EJHg3VKEA4Snmnc1+OEcfNiOjK4/3bEk+b9JNCT6VA5Pwyg0j0IDGw4/GGT4jyEbMVHBAXgSyyCEkrSXSiTK7oKjlm/S/eVt0LoK2VVxsU9JSmchoXLNwtmEtEJgh+XDwIDAQAB",
+  "permissions": [
+    "tabs",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "incognito": "not_allowed"
+}

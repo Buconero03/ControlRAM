@@ -1,8 +1,8 @@
-﻿# ControlRAM (v0.5.0 R22)
+# ControlRAM (v0.5.0 R22)
 
 > **Multi-Lane Dynamic Resource Optimization Architecture for RAM and CPU on Windows 10 and Windows 11.**
 
-**Language / Lingua:** **English** | [ðŸ‡®ðŸ‡¹ Versione Italiana](README_IT.md)
+**Language / Lingua:** **English** | [Italiano (Italian Version)](README_IT.md)
 
 [![Project Status](https://img.shields.io/badge/Status-Experimental%20%2F%20In%20Active%20Development-orange.svg)](#-experimental-status-declaration)
 [![Platform](https://img.shields.io/badge/OS-Windows%2010%20%7C%20Windows%2011%20x64-blue.svg)](#system-requirements)

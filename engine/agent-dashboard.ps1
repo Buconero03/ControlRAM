@@ -657,7 +657,7 @@ $optimizeBtn.Add_Click({
 
 $flushCompBtn.Add_Click({
     try{
-        $lblIntervention.Text = 'Esecuzione Memory Pulse Flush: svuotamento memoria compressa di Windows...'
+        $lblIntervention.Text = 'Esecuzione Memory Pulse Flush e sblocco a cascata memoria compressa...'
         $view.Refresh()
         $fRes = Invoke-AmeInternalApiCommand -Command @{command='flush_compression'} -Root $PSScriptRoot
         $freedMiB = if($fRes -and $null -ne $fRes.freed_bytes){[math]::Round([double]$fRes.freed_bytes/1MB,1)}else{0.0}
@@ -666,7 +666,7 @@ $flushCompBtn.Add_Click({
         }elseif($fRes -and $fRes.message){
             $lblIntervention.Text = $fRes.message
         }else{
-            $lblIntervention.Text = 'MEMORY PULSE FLUSH: 0 MiB rilasciati. Con RAM satura (>88%), Windows protegge la memoria compressa per evitare crash.'
+            $lblIntervention.Text = 'MEMORY PULSE FLUSH: Sblocco a cascata eseguito su WSL2 e processi in background.'
         }
         Update-AgentView
     }catch{$lblIntervention.Text = 'Errore svuotamento compressione: '+$_.Exception.Message}

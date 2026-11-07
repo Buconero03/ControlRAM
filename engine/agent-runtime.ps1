@@ -286,6 +286,53 @@ function Restore-AllAgentProcesses {
     if($a){$a.RestoredProcesses+=$count}
     return $count
 }
+function Invoke-AmeCascadeDecompression($a, [string]$Reason = 'automatico') {
+    $cascadeFreed = 0.0
+    $wslDropped = $false
+
+    # 1. Decongestione WSL2 se attivo (svuota a caldo la page cache Linux per liberare memoria fisica reale)
+    try {
+        $vmmem = Get-Process -Name 'vmmem*' -ErrorAction SilentlyContinue
+        if ($vmmem) {
+            $wsBefore = [math]::Round(($vmmem | Measure-Object WorkingSet64 -Sum).Sum / 1MB, 1)
+            $wslProc = Start-Process -FilePath "wsl.exe" -ArgumentList "-u", "root", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+            if ($wslProc) {
+                [void]$wslProc.WaitForExit(3000)
+                Start-Sleep -Milliseconds 400
+                $vmmemAfter = Get-Process -Name 'vmmem*' -ErrorAction SilentlyContinue
+                $wsAfter = if ($vmmemAfter) { [math]::Round(($vmmemAfter | Measure-Object WorkingSet64 -Sum).Sum / 1MB, 1) } else { 0.0 }
+                $wslDelta = [math]::Max(0.0, ($wsBefore - $wsAfter))
+                $wslDropped = $true
+                Write-AgentEvent @{
+                    type = 'wsl_cache_dropped'
+                    message = ('Sblocco a cascata: scaricata cache disco di WSL2 (-' + $wslDelta + ' MiB WS da VmmemWSL).')
+                }
+            }
+        }
+    } catch {}
+
+    # 2. Decongestione processi: reset temporaneo dei cooldown e ciclo forzato per creare margine di RAM
+    try {
+        $a.ProcessCooldowns.Clear()
+        $a.LastDistributedCycle = 0.0
+        $nowStamp = [Diagnostics.Stopwatch]::GetTimestamp() / [Diagnostics.Stopwatch]::Frequency
+        $distPlan = Invoke-DistributedMemoryCycle $nowStamp $true
+        Write-AgentEvent @{
+            type = 'cascade_process_unblock'
+            message = 'Sblocco a cascata: forzata compattazione processi in background per abbassare la pressione RAM.'
+        }
+    } catch {}
+
+    # 3. Pausa fisiologica (800ms) affinche il kernel NT registri la RAM fisica liberata
+    Start-Sleep -Milliseconds 800
+
+    # 4. Secondo tentativo di sgonfiamento della memoria compressa
+    $retryPulseFreed = [double]$a.NativeClient.PulseFlushMemory([uint64]1536MB)
+    return [pscustomobject]@{
+        RetryFreed = $retryPulseFreed
+        WslDropped = $wslDropped
+    }
+}
 function Invoke-DistributedMemoryCycle([double]$Now,[bool]$Force=$false) {
     $a=$script:agent
     if(!$a -or !$a.NativeClient){return $null}
@@ -388,20 +435,30 @@ function Invoke-DistributedMemoryCycle([double]$Now,[bool]$Force=$false) {
             $thresholdMiB=if($null -ne $a.Config.memory_compression_flush_threshold_mib){[double]$a.Config.memory_compression_flush_threshold_mib}else{1500.0}
             $targetHours=if($null -ne $a.Config.memory_compression_flush_hours){[double]$a.Config.memory_compression_flush_hours}else{5.0}
 
-            # Cooldown di sicurezza: non ripetere il flush automatico prima di 30 minuti (0.5 ore)
-            # anche se la memoria compressa rimane sopra la soglia
+            # Cooldown di sicurezza: non ripetere il flush automatico prima di 30 minuti (0.5 ore) se riuscito
             $minAutoCooldownHours = 0.5
             if($hoursElapsed -ge $targetHours -or ($compMiB -ge $thresholdMiB -and $hoursElapsed -ge $minAutoCooldownHours)){
                 $reason=if($compMiB -ge $thresholdMiB){"Soglia superata ($compMiB MiB >= $thresholdMiB MiB)"}else{"Intervallo raggiunto ({0:N1} h >= {1:N0} h)" -f $hoursElapsed,$targetHours}
                 $pulseFreed=[double]$a.NativeClient.PulseFlushMemory([uint64]1536MB)
-                $a.LastCompressionFlushEpoch=$nowEpoch
-                $a.CompressionFlushes++
                 $freedMiB=[math]::Round($pulseFreed/1MB,1)
-                $msg=if($freedMiB -gt 0){
-                    'Memory Pulse Flush eseguito ('+$reason+'): svuotata memoria compressa di Windows (-'+$freedMiB+' MiB).'
+                if($freedMiB -le 0){
+                    # Windows trattiene la compressione: avvia sblocco a cascata
+                    $cascade = Invoke-AmeCascadeDecompression $a $reason
+                    if($cascade.RetryFreed -gt 0){
+                        $pulseFreed = $cascade.RetryFreed
+                        $freedMiB = [math]::Round($pulseFreed/1MB,1)
+                        $a.LastCompressionFlushEpoch = $nowEpoch
+                        $msg = 'Memory Pulse Flush completato con sblocco a cascata ('+$reason+'): svuotata memoria compressa di Windows (-'+$freedMiB+' MiB).'
+                    }else{
+                        # Imposta cooldown breve (90 secondi) per riprovare appena la RAM cala
+                        $a.LastCompressionFlushEpoch = $nowEpoch - ([int](($minAutoCooldownHours * 3600) - 90))
+                        $msg = 'Memory Pulse Flush ('+$reason+'): 0 MiB rilasciati. RAM satura: Windows trattiene la memoria compressa. Eseguito sblocco a cascata (WSL2/processi); riprovo tra 90s.'
+                    }
                 }else{
-                    'Memory Pulse Flush ('+$reason+'): 0 MiB rilasciati. RAM satura: Windows trattiene la memoria compressa per protezione.'
+                    $a.LastCompressionFlushEpoch = $nowEpoch
+                    $msg = 'Memory Pulse Flush eseguito ('+$reason+'): svuotata memoria compressa di Windows (-'+$freedMiB+' MiB).'
                 }
+                $a.CompressionFlushes++
                 Write-AgentEvent @{
                     type='memory_compression_flushed'
                     freed_bytes=$pulseFreed
@@ -452,19 +509,25 @@ function Poll-AgentInternalApiBus([double]$Now) {
             }elseif($action -eq 'flush_compression'){
                 if(!$script:agent.NativeClient){throw 'API nativa non inizializzata.'}
                 $freed=[double]$script:agent.NativeClient.PulseFlushMemory([uint64]1536MB)
-                $script:agent.LastCompressionFlushEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-                $script:agent.CompressionFlushes++
                 $freedMiB=[math]::Round($freed/1MB,1)
-                $msg = if($freedMiB -gt 0){
-                    'Memory Pulse Flush manuale eseguito: svuotata memoria compressa di Windows (-'+$freedMiB+' MiB).'
-                }else{
-                    $ramPct = if($script:agent.LastTelemetry -and $null -ne $script:agent.LastTelemetry.Percent){[math]::Round([double]$script:agent.LastTelemetry.Percent,1)}else{0}
-                    if($ramPct -ge 88){
-                        'Memory Pulse Flush: 0 MiB svuotati. Con RAM al '+$ramPct+'%, Windows trattiene la memoria compressa per evitare crash. Esegui prima "Ottimizza Ora".'
+                $nowEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+                if($freedMiB -le 0){
+                    # Windows trattiene la memoria compressa: avvia lo sblocco a cascata
+                    $cascade = Invoke-AmeCascadeDecompression $script:agent 'manuale'
+                    if($cascade.RetryFreed -gt 0){
+                        $freed = $cascade.RetryFreed
+                        $freedMiB = [math]::Round($freed/1MB,1)
+                        $script:agent.LastCompressionFlushEpoch = $nowEpoch
+                        $msg = 'Memory Pulse Flush manuale completato con sblocco a cascata: svuotata memoria compressa (-'+$freedMiB+' MiB).'
                     }else{
-                        'Memory Pulse Flush completato: nessun blocco compresso residuo rilasciabile da Windows (0 MiB).'
+                        $script:agent.LastCompressionFlushEpoch = $nowEpoch - ([int]((0.5 * 3600) - 90))
+                        $msg = 'Memory Pulse Flush manuale: 0 MiB rilasciati. Windows trattiene la compressione: eseguito sblocco a cascata su WSL2 e processi in background.'
                     }
+                }else{
+                    $script:agent.LastCompressionFlushEpoch = $nowEpoch
+                    $msg = 'Memory Pulse Flush manuale eseguito: svuotata memoria compressa di Windows (-'+$freedMiB+' MiB).'
                 }
+                $script:agent.CompressionFlushes++
                 Write-AgentEvent @{type='memory_compression_flushed';freed_bytes=$freed;reason='manuale';message=$msg}
                 Write-AgentStatus
                 $reply=@{ok=$true;freed_bytes=$freed;message=$msg}

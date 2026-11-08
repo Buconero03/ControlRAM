@@ -238,12 +238,13 @@ $stop         = New-StyledButton 'Ferma e Ripristina'      (New-Object Drawing.S
 $restartBtn   = New-StyledButton 'Riavvia e Resetta'       (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 $optimizeBtn  = New-StyledButton 'Ottimizza Ora'           (New-Object Drawing.Size(135, 32)) $cBtnPrimaryBg     $cBtnPrimaryBorder     $cBtnPrimaryText       $cBtnPrimaryHover
 $flushCompBtn = New-StyledButton 'Svuota Compressione'     (New-Object Drawing.Size(170, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$defenderBtn  = New-StyledButton 'Limita Defender'         (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 $clampBtn     = New-StyledButton 'Modalita Gioco (Clamp)'  (New-Object Drawing.Size(190, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 $startupBtn   = New-StyledButton 'Avvio Windows: OFF'      (New-Object Drawing.Size(155, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cTextDim              $cBtnBaseHover
 $export       = New-StyledButton 'Esporta Diagnosi'        (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 $folder       = New-StyledButton 'Regole Config'           (New-Object Drawing.Size(125, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 
-foreach($btn in @($startBtn, $stop, $restartBtn, $optimizeBtn, $flushCompBtn, $clampBtn, $startupBtn, $export, $folder)){ [void]$buttons.Controls.Add($btn) }
+foreach($btn in @($startBtn, $stop, $restartBtn, $optimizeBtn, $flushCompBtn, $defenderBtn, $clampBtn, $startupBtn, $export, $folder)){ [void]$buttons.Controls.Add($btn) }
 
 # --- RIGA 2: Card Dettaglio Interventi & Telemetria ---
 $infoPanel = New-Object Windows.Forms.Panel
@@ -571,9 +572,18 @@ function Update-AgentView {
         $compStr = if($dist -and $null -ne $dist.compression_mib){$dist.compression_mib.ToString()+' MiB (Flush: '+$dist.compression_flushes+')'}else{'N/D'}
         $winReclaims = if($dist){$dist.windows_reclaims}else{0}
         $browserReclaims = if($dist){$dist.browser_subprocess_reclaims}else{0}
-        $cardSaving.Tag.Value.Text = ('Windows: ' + $winReclaims + ' | Web: ' + $browserReclaims)
+        $defTag = if($dist -and $dist.defender_governor_active){' | Def: 15%'}else{''}
+        $cardSaving.Tag.Value.Text = ('Windows: ' + $winReclaims + ' | Web: ' + $browserReclaims + $defTag)
         $cardSaving.Tag.Value.ForeColor = $cGreen
         $cardSaving.Tag.Sub.Text = ('Compressione: ' + $compStr)
+
+        if($dist -and $dist.defender_governor_active){
+            $defenderBtn.Text = 'Defender: 15% CPU'
+            Set-ButtonStyle $defenderBtn $cBtnGreenActiveBg $cBtnGreenActiveBorder $cBtnGreenActiveText $cBtnGreenActiveHover
+        }else{
+            $defenderBtn.Text = 'Limita Defender'
+            Set-ButtonStyle $defenderBtn $cBtnBaseBg $cBtnBaseBorder $cBtnBaseText $cBtnBaseHover
+        }
 
         # Pannello Telemetria / Ultimo Intervento
         if($s.last_result){
@@ -672,6 +682,20 @@ $flushCompBtn.Add_Click({
         }
         Update-AgentView
     }catch{$lblIntervention.Text = 'Errore svuotamento compressione: '+$_.Exception.Message}
+})
+
+$defenderBtn.Add_Click({
+    try{
+        $lblIntervention.Text = 'Applicazione limite CPU al 15% e pulizia cache per Windows Defender...'
+        $view.Refresh()
+        $defRes = Invoke-AmeInternalApiCommand -Command @{command='optimize_defender'} -Root $PSScriptRoot
+        if($defRes -and $defRes.message){
+            $lblIntervention.Text = $defRes.message
+        }else{
+            $lblIntervention.Text = 'Windows Defender: Limite CPU 15% e pulizia cache applicati con successo.'
+        }
+        Update-AgentView
+    }catch{$lblIntervention.Text = 'Errore Defender: '+$_.Exception.Message}
 })
 
 $clampBtn.Add_Click({

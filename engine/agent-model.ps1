@@ -28,7 +28,8 @@ function New-AgentState($Config) {
         Status='Avvio osservazione automatica.';Phase='starting';Applied=0;LastSampleClock=$null;Readings=@{};Samplers=@{};LastMetrics=$null;
         HistoryFailure='';InventoryFailure='';OwnPrivateBytes=$null;OwnCpu=$null;OwnCpuOverSince=$null;StopReason='';LastDecision='';LastLoopClock=$null;LastLoopUtc=$null;LastResult=$null;KnownRequests=@{};NextDecision=0.0;
         NativeClient=$null;ActiveObservations=@{};ProcessCooldowns=@{};ModifiedProcesses=@{};ClampedProcesses=@{};InternalCompactions=0;WindowsReclaims=0;BrowserSubprocessReclaims=0;RestoredProcesses=0;LastDistributedCycle=0.0;LastInternalCompact=0.0;
-        CompressionFlushes=0;LastCompressionFlushEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();MemoryCompressionMiB=0.0}
+        CompressionFlushes=0;LastCompressionFlushEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();MemoryCompressionMiB=0.0;
+        DefenderOptimized=$false;LastDefenderOptimizationEpoch=$null;DefenderMsMpEngWsMiB=0.0}
 }
 function Test-AgentHost([string]$HostName) {return $HostName.Length -le 253 -and $HostName -cmatch '^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$' -and $HostName.Contains('.') -and !$HostName.Contains('..')}
 function ConvertTo-AgentUtc($Value) {

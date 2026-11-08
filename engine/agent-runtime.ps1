@@ -286,6 +286,82 @@ function Restore-AllAgentProcesses {
     if($a){$a.RestoredProcesses+=$count}
     return $count
 }
+function Invoke-AmeDefenderOptimization($a) {
+    $result = @{
+        ok = $false
+        cpu_throttled = $false
+        cache_flushed = $false
+        exclusions_added = $false
+        msmpeng_ws_before = 0.0
+        msmpeng_ws_after = 0.0
+        message = ''
+    }
+    try {
+        $pBefore = Get-Process -Name 'MsMpEng' -ErrorAction SilentlyContinue
+        if ($pBefore) {
+            $result.msmpeng_ws_before = [math]::Round($pBefore.WorkingSet64 / 1MB, 1)
+        }
+
+        # 1. Throttling CPU Defender (abbassa al 15% e impone il limite a TUTTE le scansioni)
+        $maxCpu = if ($a.Config.windows_defender_max_cpu_percent) { [int]$a.Config.windows_defender_max_cpu_percent } else { 15 }
+        try {
+            Set-MpPreference -ScanAvgCPULoadFactor $maxCpu -ThrottleForScheduledScanOnly $false -DisableCpuThrottleOnIdle $false -ErrorAction Stop
+            $result.cpu_throttled = $true
+        } catch {}
+
+        # 2. Esclusione intelligente cartelle ad alto I/O (Build / Cache / Git / Workspace)
+        # Questo impedisce a Defender di scansionare continuamente file compilati temporanei e trattenere memoria
+        try {
+            $workspaceRoot = Split-Path -Path $PSScriptRoot -Parent
+            $buildPath = Join-Path $PSScriptRoot 'build'
+            $reportsPath = Join-Path $PSScriptRoot 'reports'
+            $toExclude = @($workspaceRoot, $buildPath, $reportsPath) | Where-Object { Test-Path $_ }
+            if ($toExclude.Count -gt 0) {
+                Add-MpPreference -ExclusionPath $toExclude -ErrorAction SilentlyContinue
+                $result.exclusions_added = $true
+            }
+        } catch {}
+
+        # 3. Pulizia della cache firme dinamiche in memoria (MpCmdRun -RemoveDefinitions -DynamicSignatures)
+        try {
+            $mpCmd = Get-ChildItem "C:\ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if (!$mpCmd -and (Test-Path "C:\Program Files\Windows Defender\MpCmdRun.exe")) {
+                $mpCmd = Get-Item "C:\Program Files\Windows Defender\MpCmdRun.exe"
+            }
+            if ($mpCmd) {
+                $proc = Start-Process -FilePath $mpCmd.FullName -ArgumentList "-RemoveDefinitions", "-DynamicSignatures" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+                if ($proc) {
+                    [void]$proc.WaitForExit(4000)
+                    $result.cache_flushed = $true
+                }
+            }
+        } catch {}
+
+        Start-Sleep -Milliseconds 400
+        $pAfter = Get-Process -Name 'MsMpEng' -ErrorAction SilentlyContinue
+        if ($pAfter) {
+            $result.msmpeng_ws_after = [math]::Round($pAfter.WorkingSet64 / 1MB, 1)
+            $a.DefenderMsMpEngWsMiB = $result.msmpeng_ws_after
+        }
+
+        $deltaWs = [math]::Round($result.msmpeng_ws_before - $result.msmpeng_ws_after, 1)
+        $deltaText = if ($deltaWs -gt 0) { " (-$deltaWs MiB RAM liberati da MsMpEng)" } else { "" }
+        $msg = "Windows Defender Governor attivo: CPU limitata al $maxCpu%, esclusione cache dev applicata$deltaText."
+        $result.message = $msg
+        $result.ok = $true
+
+        Write-AgentEvent @{
+            type = 'defender_optimized'
+            max_cpu_percent = $maxCpu
+            ws_before_mib = $result.msmpeng_ws_before
+            ws_after_mib = $result.msmpeng_ws_after
+            message = $msg
+        }
+    } catch {
+        $result.message = "Errore ottimizzazione Defender: $($_.Exception.Message)"
+    }
+    return [pscustomobject]$result
+}
 function Invoke-AmeCascadeDecompression($a, [string]$Reason = 'automatico') {
     $cascadeFreed = 0.0
     $wslDropped = $false
@@ -470,6 +546,21 @@ function Invoke-DistributedMemoryCycle([double]$Now,[bool]$Force=$false) {
             }
         }catch{}
     }
+    if($a.Config.windows_defender_governor){
+        try{
+            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            if($isAdmin){
+                $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+                $defenderInterval = if($a.Config.windows_defender_cache_flush_hours){ [double]$a.Config.windows_defender_cache_flush_hours * 3600 } else { 14400 }
+                $elapsedDefender = if($null -ne $a.LastDefenderOptimizationEpoch){ ($nowEpoch - [double]$a.LastDefenderOptimizationEpoch) } else { 999999 }
+                if(!$a.DefenderOptimized -or $elapsedDefender -ge $defenderInterval){
+                    $defRes = Invoke-AmeDefenderOptimization $a
+                    $a.LastDefenderOptimizationEpoch = $nowEpoch
+                    $a.DefenderOptimized = [bool]$defRes.ok
+                }
+            }
+        }catch{}
+    }
     return [pscustomobject]$summary
 }
 function Poll-AgentInternalApiBus([double]$Now) {
@@ -558,6 +649,17 @@ function Poll-AgentInternalApiBus([double]$Now) {
                 Write-AgentEvent @{type='process_ram_unclamped';pid=$cmd.pid;name=$cmd.name;message=('RAM Clamping rimosso da '+$cmd.name+': ripristinata allocazione normale.')}
                 Write-AgentStatus
                 $reply=@{ok=$true}
+            }elseif($action -eq 'optimize_defender'){
+                $defRes = Invoke-AmeDefenderOptimization $script:agent
+                $script:agent.LastDefenderOptimizationEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+                $script:agent.DefenderOptimized = [bool]$defRes.ok
+                Write-AgentStatus
+                $reply = @{
+                    ok = $defRes.ok
+                    message = $defRes.message
+                    ws_before = $defRes.msmpeng_ws_before
+                    ws_after = $defRes.msmpeng_ws_after
+                }
             }
         }catch{$reply=@{ok=$false;error=$_.Exception.Message}}
         $script:agentApiBus.CompleteRequest($req.Id,($reply|ConvertTo-Json -Depth 6 -Compress))
@@ -568,7 +670,7 @@ function Write-AgentStatus {
     $value=@{schema_version=1;revision='R22';root=$PSScriptRoot;run_id=$script:agentRunId;process_id=$script:agentProcessId;creation_filetime=$script:agentCreation;
         heartbeat_utc=[DateTime]::UtcNow.ToString('o');phase=$a.Phase;status=$a.Status;confirmed_discards=$a.Applied;process_count=@($a.LastInventory).Count;
         own_private_bytes=$a.OwnPrivateBytes;own_cpu_percent=$a.OwnCpu;pressure=$a.LastTelemetry;profiles=$profiles;processes=@(Get-AgentProcessSummary);recent=@($a.Recent);last_result=$a.LastResult;
-        distributed=@{internal_compactions=$a.InternalCompactions;windows_reclaims=$a.WindowsReclaims;browser_subprocess_reclaims=$a.BrowserSubprocessReclaims;restored_processes=$a.RestoredProcesses;api_bus_active=($null -ne $script:agentApiBus);compression_mib=$a.MemoryCompressionMiB;compression_flushes=$a.CompressionFlushes;last_compression_flush_epoch=$a.LastCompressionFlushEpoch;clamped_count=$a.ClampedProcesses.Count;operation_mode=$a.Config.operation_mode;clamp_target_process=$a.Config.clamp_target_process;clamp_target_threshold_mib=$a.Config.clamp_target_threshold_mib};
+        distributed=@{internal_compactions=$a.InternalCompactions;windows_reclaims=$a.WindowsReclaims;browser_subprocess_reclaims=$a.BrowserSubprocessReclaims;restored_processes=$a.RestoredProcesses;api_bus_active=($null -ne $script:agentApiBus);compression_mib=$a.MemoryCompressionMiB;compression_flushes=$a.CompressionFlushes;last_compression_flush_epoch=$a.LastCompressionFlushEpoch;clamped_count=$a.ClampedProcesses.Count;operation_mode=$a.Config.operation_mode;clamp_target_process=$a.Config.clamp_target_process;clamp_target_threshold_mib=$a.Config.clamp_target_threshold_mib;defender_governor_active=($null -ne $a.DefenderOptimized -and $a.DefenderOptimized);defender_ws_mib=$a.DefenderMsMpEngWsMiB};
         configuration=$a.Config;history_failure=$a.HistoryFailure;causation_established=$false;application_latency_measured=$false;hard_faults_measured=$false}
     Write-AgentJson (Join-Path $script:agentDirectory 'status.json') $value 256KB
 }

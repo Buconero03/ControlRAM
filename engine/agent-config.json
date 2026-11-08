@@ -25,5 +25,8 @@
   "background_cpu_rate_cap_percent": 10,
   "operation_mode": "standard",
   "clamp_target_process": "",
-  "clamp_target_threshold_mib": 1200
+  "clamp_target_threshold_mib": 1200,
+  "windows_defender_governor": true,
+  "windows_defender_max_cpu_percent": 15,
+  "windows_defender_cache_flush_hours": 4
 }

@@ -103,8 +103,10 @@ $cBtnVioletActiveText  = [Drawing.Color]::FromArgb(237, 233, 254)   # #EDE9FE
 $cBtnVioletActiveHover = [Drawing.Color]::FromArgb(109, 40, 217)    # #6D28D9
 
 # --- Finestra Principale ---
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$adminTag = if ($isAdmin) { ' [AMMINISTRATORE]' } else { '' }
 $view = New-Object Windows.Forms.Form
-$view.Text = 'AME v0.5.0 R22 - Advanced Memory Engine Dashboard'
+$view.Text = 'ControlRAM v0.5.0 R22 - Dashboard' + $adminTag
 $view.Size = New-Object Drawing.Size(1120, 820)
 $view.MinimumSize = New-Object Drawing.Size(940, 680)
 $view.StartPosition = 'CenterScreen'

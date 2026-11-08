@@ -4,11 +4,16 @@ $ErrorActionPreference='Stop'
 
 function Show-AgentLiveConsole {
     Clear-Host
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $adminLabel = if ($isAdmin) { 'AMMINISTRATORE (Accesso Completo Kernel & API)' } else { 'Utente Standard' }
+    $adminColor = if ($isAdmin) { 'Green' } else { 'Yellow' }
+
     Write-Host '==========================================================================' -ForegroundColor Cyan
-    Write-Host '  AME v0.5.0 R22 - CONSOLE LOG IN TEMPO REALE (MOTORE AUTOMATICO ATTIVO)' -ForegroundColor Cyan
+    Write-Host '  ControlRAM v0.5.0 R22 - CONSOLE LOG IN TEMPO REALE' -ForegroundColor Cyan
     Write-Host '==========================================================================' -ForegroundColor Cyan
+    Write-Host ('  * Privilegi: ' + $adminLabel) -ForegroundColor $adminColor
     Write-Host '  * Cooperazione attiva con STATO_AUTOMATICO.cmd (stesso motore e bus IPC)' -ForegroundColor Gray
-    Write-Host '  * Chiudendo questa finestra (o premendo Ctrl+C), AME si ferma e' -ForegroundColor Gray
+    Write-Host '  * Chiudendo questa finestra (o premendo Ctrl+C), il motore si ferma e' -ForegroundColor Gray
     Write-Host '    RIPRISTINA TUTTI I PROCESSI alle impostazioni originali di Windows.' -ForegroundColor Gray
     Write-Host '==========================================================================' -ForegroundColor Cyan
     Write-Host ''

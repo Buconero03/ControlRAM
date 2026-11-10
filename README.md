@@ -9,6 +9,7 @@
 [![Native Core](https://img.shields.io/badge/Core-C%2B%2B20%20Native%20DLL-green.svg)](#5-lane-engine-architecture-multi-lane-system)
 [![Interface](https://img.shields.io/badge/UI-WinForms%20Lightweight%20Dashboard-purple.svg)](#how-to-run-the-project)
 [![Observed Savings](https://img.shields.io/badge/RAM%20Reclaimed-20%25%20--%2030%25%20Real-brightgreen.svg)](#real-world-field-results-and-measured-savings)
+[![GitHub Topics](https://img.shields.io/badge/Topics-RAM%20Optimizer%20%7C%20Windows%2011%20%7C%20Defender%20Governor-informational.svg)](https://github.com/Buconero03/ControlRAM)
 
 ---
 
@@ -207,3 +208,12 @@ Distributed under an open research license for testing, study, and Windows resou
 
 *Microsoft, Windows, Windows NT, Hyper-V, and WSL are registered trademarks of Microsoft Corporation.*  
 *Google Chrome is a registered trademark of Google LLC. Mozilla Firefox is a registered trademark of Mozilla Foundation.*
+
+---
+
+## 🏷️ Topics, Tags & Discoverability
+
+This repository is tagged with the following topics for search indexing and categorization:
+
+`ram-optimizer` · `memory-cleaner` · `ram-cleaner` · `windows-11` · `windows-10` · `performance-optimization` · `wsl2` · `memory-compression` · `windows-defender` · `resource-governor` · `working-set` · `ecoqos` · `process-manager` · `cpp20` · `powershell` · `winforms` · `system-utility`
+

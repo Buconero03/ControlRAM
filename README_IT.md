@@ -9,6 +9,7 @@
 [![Core Nativo](https://img.shields.io/badge/Core-C%2B%2B20%20Native%20DLL-green.svg)](#architettura-del-software)
 [![Interfaccia](https://img.shields.io/badge/UI-WinForms%20Lightweight%20Dashboard-purple.svg)](#come-avviare-il-progetto)
 [![Efficacia Riscontrata](https://img.shields.io/badge/RAM%20Liberata-20%25%20--%2030%25%20Reale-brightgreen.svg)](#riscontro-reale-sul-campo-e-benefici-misurati)
+[![Tag GitHub](https://img.shields.io/badge/Tag-RAM%20Optimizer%20%7C%20Windows%2011%20%7C%20Defender%20Governor-informational.svg)](https://github.com/Buconero03/ControlRAM)
 
 ---
 
@@ -207,3 +208,12 @@ Questo progetto è distribuito sotto licenza aperta per scopi di studio, test e 
 
 *Microsoft, Windows, Windows NT, Hyper-V e WSL sono marchi registrati di Microsoft Corporation.*  
 *Google Chrome è un marchio registrato di Google LLC. Mozilla Firefox è un marchio registrato di Mozilla Foundation.*
+
+---
+
+## 🏷️ Tag, Argomenti e Parole Chiave del Repository
+
+Questo repository è catalogato con i seguenti tag per facilitarne la ricerca e indicizzazione su GitHub:
+
+`ram-optimizer` · `memory-cleaner` · `ram-cleaner` · `windows-11` · `windows-10` · `performance-optimization` · `wsl2` · `memory-compression` · `windows-defender` · `resource-governor` · `working-set` · `ecoqos` · `process-manager` · `cpp20` · `powershell` · `winforms` · `system-utility`
+

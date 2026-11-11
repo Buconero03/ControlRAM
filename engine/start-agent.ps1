@@ -17,9 +17,10 @@ function Show-AgentLiveConsole {
     Write-Host '    RIPRISTINA TUTTI I PROCESSI alle impostazioni originali di Windows.' -ForegroundColor Gray
     Write-Host '==========================================================================' -ForegroundColor Cyan
     Write-Host ''
+    try { Unregister-Event -SourceIdentifier PowerShell.Exiting -ErrorAction SilentlyContinue } catch {}
     [void](Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
         try { [void](Request-AgentStop) } catch {}
-    })
+    } -ErrorAction SilentlyContinue)
     $seenLines = New-Object 'System.Collections.Generic.HashSet[string]'
     $lastSummary = ''
     try {
@@ -50,9 +51,10 @@ function Show-AgentLiveConsole {
             Start-Sleep -Seconds 2
         }
     } finally {
+        try { Unregister-Event -SourceIdentifier PowerShell.Exiting -ErrorAction SilentlyContinue } catch {}
         Write-Host ''
         Write-Host 'Ripristino di tutti i processi alle impostazioni originali di Windows in corso...' -ForegroundColor Yellow
-        [void](Request-AgentStop)
+        try { [void](Request-AgentStop) } catch {}
         Write-Host 'Ripristino completato: tutto e tornato come prima.' -ForegroundColor Green
     }
 }

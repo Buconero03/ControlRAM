@@ -1,12 +1,20 @@
 function Get-AgentDirectory {return Join-Path $PSScriptRoot 'reports/agent'}
 function Read-AgentJson([string]$Path,[long]$Limit=1MB) {
     if(!(Test-Path -LiteralPath $Path)){return $null}
-    $stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
-    try{
-        if($stream.Length -gt $Limit){throw 'File stato oltre il limite.'}
-        $reader=New-Object IO.StreamReader($stream,[Text.Encoding]::UTF8,$true)
-        try{return $reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}
-    }finally{$stream.Dispose()}
+    for($attempt=0;$attempt -lt 6;$attempt++){
+        try{
+            $stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            try{
+                if($stream.Length -gt $Limit){throw 'File stato oltre il limite.'}
+                $reader=New-Object IO.StreamReader($stream,[Text.Encoding]::UTF8,$true)
+                try{return $reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}
+            }finally{$stream.Dispose()}
+        }catch [IO.IOException]{
+            if($attempt -ge 5){return $null}
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    return $null
 }
 function Write-AgentJson([string]$Path,$Value,[long]$Limit=1MB) {
     $encoding=New-Object Text.UTF8Encoding($false);$json=$Value|ConvertTo-Json -Depth 12
@@ -14,7 +22,20 @@ function Write-AgentJson([string]$Path,$Value,[long]$Limit=1MB) {
     $temporary=$Path+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
     try{
         [IO.File]::WriteAllText($temporary,$json,$encoding)
-        if([IO.File]::Exists($Path)){[IO.File]::Replace($temporary,$Path,[System.Management.Automation.Language.NullString]::Value)}else{[IO.File]::Move($temporary,$Path)}
+        $replaced=$false
+        for($attempt=0;$attempt -lt 6;$attempt++){
+            try{
+                if([IO.File]::Exists($Path)){[IO.File]::Replace($temporary,$Path,[System.Management.Automation.Language.NullString]::Value)}else{[IO.File]::Move($temporary,$Path)}
+                $replaced=$true
+                break
+            }catch [IO.IOException]{
+                if($attempt -ge 5){break}
+                Start-Sleep -Milliseconds 50
+            }
+        }
+        if(!$replaced -and (Test-Path -LiteralPath $temporary)){
+            try{[IO.File]::Copy($temporary,$Path,$true)}catch{}
+        }
     }finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
 }
 function Get-AgentLiveStatus {
@@ -44,21 +65,26 @@ function Invoke-FullSystemRestore {
     }catch{return 0}
 }
 function Request-AgentStop {
-    $s=Get-AgentLiveStatus
-    $wasAlive=($null -ne $s -and $s.identity_alive)
-    if($wasAlive){
-        $run=[guid]::Empty
-        if([guid]::TryParse([string]$s.run_id,[ref]$run)){
-            Write-AgentJson (Join-Path (Get-AgentDirectory) 'stop.json') @{run_id=$run.ToString('D');requested_utc=[DateTime]::UtcNow.ToString('o')} 4096
-            for($i=0;$i -lt 12;$i++){
-                Start-Sleep -Milliseconds 200
-                $chk=Get-AgentLiveStatus
-                if(!$chk -or !$chk.identity_alive){break}
+    try{
+        $s=Get-AgentLiveStatus
+        $wasAlive=($null -ne $s -and $s.identity_alive)
+        if($wasAlive){
+            $run=[guid]::Empty
+            if([guid]::TryParse([string]$s.run_id,[ref]$run)){
+                Write-AgentJson (Join-Path (Get-AgentDirectory) 'stop.json') @{run_id=$run.ToString('D');requested_utc=[DateTime]::UtcNow.ToString('o')} 4096
+                for($i=0;$i -lt 12;$i++){
+                    Start-Sleep -Milliseconds 200
+                    $chk=Get-AgentLiveStatus
+                    if(!$chk -or !$chk.identity_alive){break}
+                }
             }
         }
+        [void](Invoke-FullSystemRestore)
+        return $wasAlive
+    }catch{
+        try{[void](Invoke-FullSystemRestore)}catch{}
+        return $false
     }
-    [void](Invoke-FullSystemRestore)
-    return $wasAlive
 }
 function Assert-AgentValidated {
     $path=Join-Path $PSScriptRoot 'build/windows-validation.json'

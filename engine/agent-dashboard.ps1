@@ -569,16 +569,16 @@ function Update-AgentView {
         }
 
         # Aggiornamento Card 4: Risparmio & Compressione
-        $compStr = if($dist -and $null -ne $dist.compression_mib){$dist.compression_mib.ToString()+' MiB (Flush: '+$dist.compression_flushes+')'}else{'N/D'}
+        $compStr = if($dist -and $null -ne $dist.compression_mib){$dist.compression_mib.ToString()+' MiB (F:'+$dist.compression_flushes+')'}else{'N/D'}
         $winReclaims = if($dist){$dist.windows_reclaims}else{0}
         $browserReclaims = if($dist){$dist.browser_subprocess_reclaims}else{0}
-        $defTag = if($dist -and $dist.defender_governor_active){' | Def: 15%'}else{''}
-        $cardSaving.Tag.Value.Text = ('Windows: ' + $winReclaims + ' | Web: ' + $browserReclaims + $defTag)
+        $defSubTag = if($dist -and $dist.defender_governor_active){' | Def: 15% OK'}else{' | Def: No'}
+        $cardSaving.Tag.Value.Text = ('Win: ' + $winReclaims + ' | Web: ' + $browserReclaims)
         $cardSaving.Tag.Value.ForeColor = $cGreen
-        $cardSaving.Tag.Sub.Text = ('Compressione: ' + $compStr)
+        $cardSaving.Tag.Sub.Text = ('Comp: ' + $compStr + $defSubTag)
 
         if($dist -and $dist.defender_governor_active){
-            $defenderBtn.Text = 'Defender: 15% CPU'
+            $defenderBtn.Text = 'Defender: 15% OK'
             Set-ButtonStyle $defenderBtn $cBtnGreenActiveBg $cBtnGreenActiveBorder $cBtnGreenActiveText $cBtnGreenActiveHover
         }else{
             $defenderBtn.Text = 'Limita Defender'
@@ -686,13 +686,34 @@ $flushCompBtn.Add_Click({
 
 $defenderBtn.Add_Click({
     try{
-        $lblIntervention.Text = 'Applicazione limite CPU al 15% e pulizia cache per Windows Defender...'
+        $lblIntervention.Text = 'Verifica e applicazione limite CPU 15% + Low Priority per Windows Defender...'
         $view.Refresh()
         $defRes = Invoke-AmeInternalApiCommand -Command @{command='optimize_defender'} -Root $PSScriptRoot
-        if($defRes -and $defRes.message){
+        if($defRes -and $defRes.requires_admin){
+            $lblIntervention.Text = 'Richiesta elevazione Amministratore (UAC) per applicare il limite reale a Windows Defender...'
+            $view.Refresh()
+            $applyScript = Join-Path $PSScriptRoot 'apply-defender-limit.ps1'
+            $wsRoot = Split-Path -Path $PSScriptRoot -Parent
+            $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            try{
+                $elev = Start-Process -FilePath $psExe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $applyScript + '" -MaxCpu 15 -WorkspaceRoot "' + $wsRoot + '"') -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                if($elev.ExitCode -eq 0){
+                    $defRes = Invoke-AmeInternalApiCommand -Command @{command='optimize_defender'} -Root $PSScriptRoot
+                    if($defRes -and $defRes.ok){
+                        $lblIntervention.Text = $defRes.message
+                    }else{
+                        $lblIntervention.Text = 'Windows Defender aggiornato via UAC, in attesa conferma telemetria.'
+                    }
+                }else{
+                    $lblIntervention.Text = 'Applicazione limite Defender fallita (codice ' + $elev.ExitCode + '). Verifica Tamper Protection.'
+                }
+            }catch{
+                $lblIntervention.Text = 'Elevazione UAC annullata: il limite CPU su Windows Defender NON e stato applicato.'
+            }
+        }elseif($defRes -and $defRes.message){
             $lblIntervention.Text = $defRes.message
         }else{
-            $lblIntervention.Text = 'Windows Defender: Limite CPU 15% e pulizia cache applicati con successo.'
+            $lblIntervention.Text = 'Stato Windows Defender verificato.'
         }
         Update-AgentView
     }catch{$lblIntervention.Text = 'Errore Defender: '+$_.Exception.Message}

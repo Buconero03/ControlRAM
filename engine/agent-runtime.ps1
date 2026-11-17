@@ -286,12 +286,44 @@ function Restore-AllAgentProcesses {
     if($a){$a.RestoredProcesses+=$count}
     return $count
 }
+function Get-AmeDefenderRealStatus([int]$MaxCpu = 15) {
+    $st = @{
+        readable = $false
+        applied = $false
+        actual_cpu = $null
+        low_priority = $false
+        throttle_all_scans = $false
+        throttle_on_idle = $false
+        tamper_protected = $null
+        error = ''
+    }
+    try {
+        $mp = Get-MpPreference -ErrorAction Stop
+        $st.readable = $true
+        $st.actual_cpu = [int]$mp.ScanAvgCPULoadFactor
+        $st.low_priority = ($mp.EnableLowCpuPriority -eq $true)
+        $st.throttle_all_scans = (-not [bool]$mp.ThrottleForScheduledScanOnly)
+        $st.throttle_on_idle = (-not [bool]$mp.DisableCpuThrottleOnIdleScans)
+        $st.applied = ($st.actual_cpu -le $MaxCpu) -and $st.low_priority -and $st.throttle_all_scans -and $st.throttle_on_idle
+    } catch {
+        $st.error = $_.Exception.Message
+    }
+    try {
+        $cs = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($cs) { $st.tamper_protected = [bool]$cs.IsTamperProtected }
+    } catch {}
+    return [pscustomobject]$st
+}
 function Invoke-AmeDefenderOptimization($a) {
+    $maxCpu = if ($a.Config.windows_defender_max_cpu_percent) { [int]$a.Config.windows_defender_max_cpu_percent } else { 15 }
     $result = @{
         ok = $false
+        requires_admin = $false
         cpu_throttled = $false
         cache_flushed = $false
         exclusions_added = $false
+        actual_cpu = $null
+        low_priority = $false
         msmpeng_ws_before = 0.0
         msmpeng_ws_after = 0.0
         message = ''
@@ -300,64 +332,99 @@ function Invoke-AmeDefenderOptimization($a) {
         $pBefore = Get-Process -Name 'MsMpEng' -ErrorAction SilentlyContinue
         if ($pBefore) {
             $result.msmpeng_ws_before = [math]::Round($pBefore.WorkingSet64 / 1MB, 1)
+            $result.msmpeng_ws_after = $result.msmpeng_ws_before
+            $a.DefenderMsMpEngWsMiB = $result.msmpeng_ws_after
         }
 
-        # 1. Throttling CPU Defender (abbassa al 15% e impone il limite a TUTTE le scansioni)
-        $maxCpu = if ($a.Config.windows_defender_max_cpu_percent) { [int]$a.Config.windows_defender_max_cpu_percent } else { 15 }
-        try {
-            Set-MpPreference -ScanAvgCPULoadFactor $maxCpu -ThrottleForScheduledScanOnly $false -DisableCpuThrottleOnIdle $false -ErrorAction Stop
-            $result.cpu_throttled = $true
-        } catch {}
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        $applyError = ''
 
-        # 2. Esclusione intelligente cartelle ad alto I/O (Build / Cache / Git / Workspace)
-        # Questo impedisce a Defender di scansionare continuamente file compilati temporanei e trattenere memoria
-        try {
-            $workspaceRoot = Split-Path -Path $PSScriptRoot -Parent
-            $buildPath = Join-Path $PSScriptRoot 'build'
-            $reportsPath = Join-Path $PSScriptRoot 'reports'
-            $toExclude = @($workspaceRoot, $buildPath, $reportsPath) | Where-Object { Test-Path $_ }
-            if ($toExclude.Count -gt 0) {
-                Add-MpPreference -ExclusionPath $toExclude -ErrorAction SilentlyContinue
-                $result.exclusions_added = $true
+        if ($isAdmin) {
+            # 1. Throttling CPU reale Windows Defender (nome parametri esatto + LowCpuPriority)
+            try {
+                Set-MpPreference -ScanAvgCPULoadFactor $maxCpu -ThrottleForScheduledScanOnly $false -DisableCpuThrottleOnIdleScans $false -EnableLowCpuPriority $true -AllowSwitchToAsyncInspection $true -ErrorAction Stop
+                $result.cpu_throttled = $true
+            } catch {
+                $applyError = $_.Exception.Message
             }
-        } catch {}
 
-        # 3. Pulizia della cache firme dinamiche in memoria (MpCmdRun -RemoveDefinitions -DynamicSignatures)
-        try {
-            $mpCmd = Get-ChildItem "C:\ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if (!$mpCmd -and (Test-Path "C:\Program Files\Windows Defender\MpCmdRun.exe")) {
-                $mpCmd = Get-Item "C:\Program Files\Windows Defender\MpCmdRun.exe"
-            }
-            if ($mpCmd) {
-                $proc = Start-Process -FilePath $mpCmd.FullName -ArgumentList "-RemoveDefinitions", "-DynamicSignatures" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
-                if ($proc) {
-                    [void]$proc.WaitForExit(4000)
-                    $result.cache_flushed = $true
+            # 2. Esclusione intelligente cartelle ad alto I/O (Build / Cache / Workspace)
+            try {
+                $workspaceRoot = Split-Path -Path $PSScriptRoot -Parent
+                $buildPath = Join-Path $PSScriptRoot 'build'
+                $reportsPath = Join-Path $PSScriptRoot 'reports'
+                $toExclude = @($workspaceRoot, $buildPath, $reportsPath) | Where-Object { Test-Path $_ }
+                if ($toExclude.Count -gt 0) {
+                    Add-MpPreference -ExclusionPath $toExclude -ErrorAction SilentlyContinue
+                    $result.exclusions_added = $true
                 }
-            }
-        } catch {}
+            } catch {}
 
-        Start-Sleep -Milliseconds 400
+            # 3. Pulizia della cache firme dinamiche in memoria (MpCmdRun -RemoveDefinitions -DynamicSignatures)
+            try {
+                $mpCmd = Get-ChildItem "C:\ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                if (!$mpCmd -and (Test-Path "C:\Program Files\Windows Defender\MpCmdRun.exe")) {
+                    $mpCmd = Get-Item "C:\Program Files\Windows Defender\MpCmdRun.exe"
+                }
+                if ($mpCmd) {
+                    $proc = Start-Process -FilePath $mpCmd.FullName -ArgumentList "-RemoveDefinitions", "-DynamicSignatures" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+                    if ($proc) {
+                        [void]$proc.WaitForExit(4000)
+                        $result.cache_flushed = $true
+                    }
+                }
+            } catch {}
+
+            Start-Sleep -Milliseconds 350
+        }
+
+        # 4. Verifica reale post-applicazione (o stato attuale se Utente Standard)
+        $real = Get-AmeDefenderRealStatus $maxCpu
+        $result.actual_cpu = $real.actual_cpu
+        $result.low_priority = $real.low_priority
+        $result.cpu_throttled = [bool]$real.applied
+
         $pAfter = Get-Process -Name 'MsMpEng' -ErrorAction SilentlyContinue
         if ($pAfter) {
             $result.msmpeng_ws_after = [math]::Round($pAfter.WorkingSet64 / 1MB, 1)
             $a.DefenderMsMpEngWsMiB = $result.msmpeng_ws_after
         }
 
-        $deltaWs = [math]::Round($result.msmpeng_ws_before - $result.msmpeng_ws_after, 1)
-        $deltaText = if ($deltaWs -gt 0) { " (-$deltaWs MiB RAM liberati da MsMpEng)" } else { "" }
-        $msg = "Windows Defender Governor attivo: CPU limitata al $maxCpu%, esclusione cache dev applicata$deltaText."
-        $result.message = $msg
-        $result.ok = $true
+        if ($real.applied) {
+            $deltaWs = [math]::Round($result.msmpeng_ws_before - $result.msmpeng_ws_after, 1)
+            $deltaText = if ($deltaWs -gt 0) { " (-$deltaWs MiB RAM liberati da MsMpEng)" } else { "" }
+            $msg = "Windows Defender Governor ATTIVO (verificato): limite CPU scansioni $($real.actual_cpu)%, priorita CPU bassa attiva$deltaText."
+            $result.message = $msg
+            $result.ok = $true
+            $a.DefenderOptimized = $true
+        } elseif (!$isAdmin) {
+            $result.requires_admin = $true
+            $result.ok = $false
+            $a.DefenderOptimized = $false
+            $curCpuText = if ($null -ne $real.actual_cpu) { "$($real.actual_cpu)%" } else { "N/D" }
+            $msg = "Permessi Amministratore richiesti: limite Defender NON attivo (CPU attuale: $curCpuText, LowPriority: $($real.low_priority))."
+            $result.message = $msg
+        } else {
+            $result.ok = $false
+            $a.DefenderOptimized = $false
+            $errInfo = if ($applyError) { $applyError } elseif ($real.tamper_protected) { "Protezione manomissione (Tamper Protection) attiva." } else { "Windows Defender non ha recepito la policy (CPU attuale: $($real.actual_cpu)%)." }
+            $msg = "Impossibile applicare il limite a Windows Defender: $errInfo"
+            $result.message = $msg
+        }
 
         Write-AgentEvent @{
-            type = 'defender_optimized'
+            type = if ($result.ok) { 'defender_optimized' } else { 'defender_optimization_pending' }
             max_cpu_percent = $maxCpu
+            actual_cpu_percent = $result.actual_cpu
+            low_priority = $result.low_priority
+            requires_admin = $result.requires_admin
             ws_before_mib = $result.msmpeng_ws_before
             ws_after_mib = $result.msmpeng_ws_after
             message = $msg
         }
     } catch {
+        $result.ok = $false
+        $a.DefenderOptimized = $false
         $result.message = "Errore ottimizzazione Defender: $($_.Exception.Message)"
     }
     return [pscustomobject]$result
@@ -548,15 +615,23 @@ function Invoke-DistributedMemoryCycle([double]$Now,[bool]$Force=$false) {
     }
     if($a.Config.windows_defender_governor){
         try{
+            $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            $elapsedDefender = if($null -ne $a.LastDefenderOptimizationEpoch){ ($nowEpoch - [double]$a.LastDefenderOptimizationEpoch) } else { 999999 }
             if($isAdmin){
-                $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
                 $defenderInterval = if($a.Config.windows_defender_cache_flush_hours){ [double]$a.Config.windows_defender_cache_flush_hours * 3600 } else { 14400 }
-                $elapsedDefender = if($null -ne $a.LastDefenderOptimizationEpoch){ ($nowEpoch - [double]$a.LastDefenderOptimizationEpoch) } else { 999999 }
-                if(!$a.DefenderOptimized -or $elapsedDefender -ge $defenderInterval){
+                $retryInterval = if($a.DefenderOptimized){ $defenderInterval } else { 120 }
+                if($elapsedDefender -ge $retryInterval){
                     $defRes = Invoke-AmeDefenderOptimization $a
                     $a.LastDefenderOptimizationEpoch = $nowEpoch
                     $a.DefenderOptimized = [bool]$defRes.ok
+                }
+            }else{
+                if($elapsedDefender -ge 30){
+                    $maxCpu = if($a.Config.windows_defender_max_cpu_percent){ [int]$a.Config.windows_defender_max_cpu_percent }else{ 15 }
+                    $realDef = Get-AmeDefenderRealStatus $maxCpu
+                    $a.DefenderOptimized = [bool]$realDef.applied
+                    $a.LastDefenderOptimizationEpoch = $nowEpoch
                 }
             }
         }catch{}
@@ -655,7 +730,10 @@ function Poll-AgentInternalApiBus([double]$Now) {
                 $script:agent.DefenderOptimized = [bool]$defRes.ok
                 Write-AgentStatus
                 $reply = @{
-                    ok = $defRes.ok
+                    ok = [bool]$defRes.ok
+                    requires_admin = [bool]$defRes.requires_admin
+                    actual_cpu = $defRes.actual_cpu
+                    low_priority = [bool]$defRes.low_priority
                     message = $defRes.message
                     ws_before = $defRes.msmpeng_ws_before
                     ws_after = $defRes.msmpeng_ws_after

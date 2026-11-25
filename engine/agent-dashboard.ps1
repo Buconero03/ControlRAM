@@ -568,14 +568,24 @@ function Update-AgentView {
             Set-ButtonStyle $clampBtn $cBtnBaseBg $cBtnBaseBorder $cBtnBaseText $cBtnBaseHover
         }
 
-        # Aggiornamento Card 4: Risparmio & Compressione
+        # Aggiornamento Card 4: Risparmio & Compressione (o Allerta Kernel Pool / Handle Leak)
         $compStr = if($dist -and $null -ne $dist.compression_mib){$dist.compression_mib.ToString()+' MiB (F:'+$dist.compression_flushes+')'}else{'N/D'}
         $winReclaims = if($dist){$dist.windows_reclaims}else{0}
         $browserReclaims = if($dist){$dist.browser_subprocess_reclaims}else{0}
         $defSubTag = if($dist -and $dist.defender_governor_active){' | Def: 15% OK'}else{' | Def: No'}
-        $cardSaving.Tag.Value.Text = ('Win: ' + $winReclaims + ' | Web: ' + $browserReclaims)
-        $cardSaving.Tag.Value.ForeColor = $cGreen
-        $cardSaving.Tag.Sub.Text = ('Comp: ' + $compStr + $defSubTag)
+        $hasKernelAlert = ($dist -and ![string]::IsNullOrWhiteSpace([string]$dist.kernel_pool_warning))
+        if($hasKernelAlert){
+            $npMiB = if($null -ne $dist.kernel_nonpaged_mib){[math]::Round([double]$dist.kernel_nonpaged_mib,0)}else{0}
+            $lkName = if($dist.kernel_leak_process){[string]$dist.kernel_leak_process}else{'Kernel'}
+            $lkHandles = if($dist.kernel_leak_handles){[math]::Round([double]$dist.kernel_leak_handles/1000,0)}else{0}
+            $cardSaving.Tag.Value.Text = ('ALLERTA KERNEL: ' + $npMiB + ' MiB NP')
+            $cardSaving.Tag.Value.ForeColor = if($npMiB -ge 1500 -or $lkHandles -ge 250){$cRed}else{$cAmber}
+            $cardSaving.Tag.Sub.Text = ('Leak: ' + $lkName + ' (' + $lkHandles + 'k handle) | Comp: ' + $compStr)
+        }else{
+            $cardSaving.Tag.Value.Text = ('Win: ' + $winReclaims + ' | Web: ' + $browserReclaims)
+            $cardSaving.Tag.Value.ForeColor = $cGreen
+            $cardSaving.Tag.Sub.Text = ('Comp: ' + $compStr + $defSubTag)
+        }
 
         if($dist -and $dist.defender_governor_active){
             $defenderBtn.Text = 'Defender: 15% OK'
@@ -586,13 +596,19 @@ function Update-AgentView {
         }
 
         # Pannello Telemetria / Ultimo Intervento
-        if($s.last_result){
+        if($hasKernelAlert){
+            $lblIntervention.Text = ([string]$dist.kernel_pool_warning)
+            $lblIntervention.ForeColor = $cAmber
+        }elseif($s.last_result){
             $diffStr = if($s.last_result.assessment){' [Differenza netta: {0:+0.0;-0.0;0.0} MiB]' -f ($s.last_result.assessment.NetObservedDropBytes/1MB)}else{''}
             $lblIntervention.Text = ('ULTIMO INTERVENTO: ' + $s.last_result.message + $diffStr)
+            $lblIntervention.ForeColor = $cCyanLight
         }else{
             $lblIntervention.Text = 'IN ASCOLTO: Monitoraggio dinamico della memoria attivo su tutti i processi di sistema.'
+            $lblIntervention.ForeColor = $cCyanLight
         }
-        $lblDetails.Text = ('Processi osservati: ' + $s.process_count + ' | Scaricamenti schede: ' + $s.confirmed_discards + ' | Ripristinati al risveglio: ' + $(if($dist){$dist.restored_processes}else{0}))
+        $kernelDetails = if($dist -and $null -ne $dist.kernel_nonpaged_mib -and [double]$dist.kernel_nonpaged_mib -gt 0){' | Kernel NP: '+[math]::Round([double]$dist.kernel_nonpaged_mib,0)+' MiB'}else{''}
+        $lblDetails.Text = ('Processi osservati: ' + $s.process_count + ' | Scaricamenti schede: ' + $s.confirmed_discards + ' | Ripristinati al risveglio: ' + $(if($dist){$dist.restored_processes}else{0}) + $kernelDetails)
 
         # Popolamento Tabella Processi
         $grid.Rows.Clear()

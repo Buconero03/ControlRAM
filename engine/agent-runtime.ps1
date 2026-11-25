@@ -476,9 +476,95 @@ function Invoke-AmeCascadeDecompression($a, [string]$Reason = 'automatico') {
         WslDropped = $wslDropped
     }
 }
+function Update-AmeKernelAndHandleTelemetry($a) {
+    if(!$a -or !$a.Config -or !$a.Config.kernel_pool_monitor){return}
+    $nowEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    if($null -ne $a.LastKernelCheckEpoch -and ($nowEpoch - [double]$a.LastKernelCheckEpoch) -lt 30){return}
+    $a.LastKernelCheckEpoch=$nowEpoch
+    try{
+        if(!('AmeKernelPerfNative' -as [type])){
+            Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class AmeKernelPerfNative {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PERFORMANCE_INFORMATION {
+        public uint cb;
+        public UIntPtr CommitTotal;
+        public UIntPtr CommitLimit;
+        public UIntPtr CommitPeak;
+        public UIntPtr PhysicalTotal;
+        public UIntPtr PhysicalAvailable;
+        public UIntPtr SystemCache;
+        public UIntPtr KernelTotal;
+        public UIntPtr KernelPaged;
+        public UIntPtr KernelNonpaged;
+        public UIntPtr PageSize;
+        public uint HandleCount;
+        public uint ProcessCount;
+        public uint ThreadCount;
+    }
+    [DllImport("psapi.dll", SetLastError = true)]
+    public static extern bool GetPerformanceInfo(out PERFORMANCE_INFORMATION pPerformanceInformation, uint cb);
+}
+'@ -ErrorAction SilentlyContinue
+        }
+        $pi=New-Object AmeKernelPerfNative+PERFORMANCE_INFORMATION
+        $pi.cb=[uint32][Runtime.InteropServices.Marshal]::SizeOf($pi)
+        if([AmeKernelPerfNative]::GetPerformanceInfo([ref]$pi,$pi.cb)){
+            $ps=[double]$pi.PageSize.ToUInt64()
+            $a.KernelNonPagedMiB=[math]::Round(($pi.KernelNonpaged.ToUInt64()*$ps)/1MB,1)
+            $a.KernelPagedMiB=[math]::Round(($pi.KernelPaged.ToUInt64()*$ps)/1MB,1)
+            $a.SystemHandles=[int]$pi.HandleCount
+        }
+        $topName='';$topPid=0;$topHandles=0
+        $allProcs=[Diagnostics.Process]::GetProcesses()
+        try{
+            foreach($p in $allProcs){
+                try{
+                    if($p.HandleCount -gt $topHandles){
+                        $topHandles=$p.HandleCount
+                        $topPid=$p.Id
+                        $topName=$p.ProcessName
+                    }
+                }catch{}finally{$p.Dispose()}
+            }
+        }catch{}
+        $a.KernelLeakProcess=$topName
+        $a.KernelLeakPid=$topPid
+        $a.KernelLeakHandles=$topHandles
+
+        $npAlert=if($a.Config.kernel_nonpaged_alert_mib){[double]$a.Config.kernel_nonpaged_alert_mib}else{1024.0}
+        $hlAlert=if($a.Config.process_handle_leak_threshold){[int]$a.Config.process_handle_leak_threshold}else{100000}
+
+        $parts=@()
+        if($a.KernelNonPagedMiB -ge $npAlert){
+            $parts+=('Non-Paged Pool ' + $a.KernelNonPagedMiB + ' MiB (Paged: ' + $a.KernelPagedMiB + ' MiB)')
+        }
+        if($topHandles -ge $hlAlert){
+            $parts+=('Leak handle: ' + $topName + ' (PID ' + $topPid + ': ' + ('{0:N0}' -f $topHandles) + ' handle)')
+        }
+        if($parts.Count -gt 0){
+            $warnMsg='ALLERTA KERNEL: ' + ($parts -join ' | ') + '. Memoria kernel non comprimibile.'
+            $a.KernelPoolWarning=$warnMsg
+            $lastEv=if($null -ne $a.LastKernelEventEpoch){[double]$a.LastKernelEventEpoch}else{0.0}
+            if(($nowEpoch - $lastEv) -ge 300){
+                $a.LastKernelEventEpoch=$nowEpoch
+                Write-AgentEvent @{type='kernel_pool_alert';nonpaged_mib=$a.KernelNonPagedMiB;paged_mib=$a.KernelPagedMiB;handles=$a.SystemHandles;leak_process=$topName;leak_pid=$topPid;leak_handles=$topHandles;message=$warnMsg}
+            }
+        }else{
+            if(![string]::IsNullOrWhiteSpace($a.KernelPoolWarning)){
+                Write-AgentEvent @{type='kernel_pool_cleared';nonpaged_mib=$a.KernelNonPagedMiB;paged_mib=$a.KernelPagedMiB;message=('Rientro allerta Kernel Pool: Non-Paged Pool tornato a ' + $a.KernelNonPagedMiB + ' MiB.')}
+            }
+            $a.KernelPoolWarning=''
+        }
+    }catch{}
+}
 function Invoke-DistributedMemoryCycle([double]$Now,[bool]$Force=$false) {
     $a=$script:agent
-    if(!$a -or !$a.NativeClient){return $null}
+    if(!$a){return $null}
+    Update-AmeKernelAndHandleTelemetry $a
+    if(!$a.NativeClient){return $null}
     Restore-ActiveForegroundProcesses
     if($a.Config.operation_mode -eq 'clamp' -or ![string]::IsNullOrWhiteSpace($a.Config.clamp_target_process)){
         $targetProc=[string]$a.Config.clamp_target_process
@@ -748,7 +834,7 @@ function Write-AgentStatus {
     $value=@{schema_version=1;revision='R22';root=$PSScriptRoot;run_id=$script:agentRunId;process_id=$script:agentProcessId;creation_filetime=$script:agentCreation;
         heartbeat_utc=[DateTime]::UtcNow.ToString('o');phase=$a.Phase;status=$a.Status;confirmed_discards=$a.Applied;process_count=@($a.LastInventory).Count;
         own_private_bytes=$a.OwnPrivateBytes;own_cpu_percent=$a.OwnCpu;pressure=$a.LastTelemetry;profiles=$profiles;processes=@(Get-AgentProcessSummary);recent=@($a.Recent);last_result=$a.LastResult;
-        distributed=@{internal_compactions=$a.InternalCompactions;windows_reclaims=$a.WindowsReclaims;browser_subprocess_reclaims=$a.BrowserSubprocessReclaims;restored_processes=$a.RestoredProcesses;api_bus_active=($null -ne $script:agentApiBus);compression_mib=$a.MemoryCompressionMiB;compression_flushes=$a.CompressionFlushes;last_compression_flush_epoch=$a.LastCompressionFlushEpoch;clamped_count=$a.ClampedProcesses.Count;operation_mode=$a.Config.operation_mode;clamp_target_process=$a.Config.clamp_target_process;clamp_target_threshold_mib=$a.Config.clamp_target_threshold_mib;defender_governor_active=($null -ne $a.DefenderOptimized -and $a.DefenderOptimized);defender_ws_mib=$a.DefenderMsMpEngWsMiB};
+        distributed=@{internal_compactions=$a.InternalCompactions;windows_reclaims=$a.WindowsReclaims;browser_subprocess_reclaims=$a.BrowserSubprocessReclaims;restored_processes=$a.RestoredProcesses;api_bus_active=($null -ne $script:agentApiBus);compression_mib=$a.MemoryCompressionMiB;compression_flushes=$a.CompressionFlushes;last_compression_flush_epoch=$a.LastCompressionFlushEpoch;clamped_count=$a.ClampedProcesses.Count;operation_mode=$a.Config.operation_mode;clamp_target_process=$a.Config.clamp_target_process;clamp_target_threshold_mib=$a.Config.clamp_target_threshold_mib;defender_governor_active=($null -ne $a.DefenderOptimized -and $a.DefenderOptimized);defender_ws_mib=$a.DefenderMsMpEngWsMiB;kernel_nonpaged_mib=$a.KernelNonPagedMiB;kernel_paged_mib=$a.KernelPagedMiB;system_handles=$a.SystemHandles;kernel_leak_process=$a.KernelLeakProcess;kernel_leak_pid=$a.KernelLeakPid;kernel_leak_handles=$a.KernelLeakHandles;kernel_pool_warning=$a.KernelPoolWarning};
         configuration=$a.Config;history_failure=$a.HistoryFailure;causation_established=$false;application_latency_measured=$false;hard_faults_measured=$false}
     Write-AgentJson (Join-Path $script:agentDirectory 'status.json') $value 256KB
 }

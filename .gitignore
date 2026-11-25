@@ -17,6 +17,7 @@
 engine/reports/agent/*
 engine/reports/*.log
 engine/reports/*.json
+engine/reports/*.txt
 engine/reports/*.zip
 engine/exports/*
 *.tmp

@@ -35,7 +35,7 @@ function Show-AgentLiveConsole {
                 if ($text -and $seenLines.Add($text)) {
                     if ($text -like '*ALLERTA KERNEL*') {
                         Write-Host ('  [ALLERTA] ' + $text) -ForegroundColor Red
-                    } elseif ($text -like '*API interna*' -or $text -like '*Ripristino*') {
+                    } elseif ($text -like '*API interna*' -or $text -like '*Ripristino*' -or $text -like '*AUTO-BONIFICA*') {
                         Write-Host ('  [AZIONE] ' + $text) -ForegroundColor Green
                     } else {
                         Write-Host ('  [EVENTO] ' + $text) -ForegroundColor White

@@ -536,6 +536,43 @@ public static class AmeKernelPerfNative {
 
         $npAlert=if($a.Config.kernel_nonpaged_alert_mib){[double]$a.Config.kernel_nonpaged_alert_mib}else{1024.0}
         $hlAlert=if($a.Config.process_handle_leak_threshold){[int]$a.Config.process_handle_leak_threshold}else{100000}
+        $remHandles=if($a.Config.kernel_leak_remediate_handles){[int]$a.Config.kernel_leak_remediate_handles}else{150000}
+        $remPersist=if($a.Config.kernel_leak_persist_seconds){[int]$a.Config.kernel_leak_persist_seconds}else{120}
+
+        # Auto-bonifica sicura se TiWorker resta bloccato in leak di handle persistente
+        if($a.Config.kernel_leak_auto_remediate -and $topName -eq 'TiWorker' -and $topHandles -ge $remHandles -and $a.KernelNonPagedMiB -ge $npAlert){
+            if($null -eq $a.KernelLeakSinceEpoch){$a.KernelLeakSinceEpoch=$nowEpoch}
+            $persisted = ($nowEpoch - [double]$a.KernelLeakSinceEpoch)
+            $lastRem = if($null -ne $a.LastKernelRemediateEpoch){[double]$a.LastKernelRemediateEpoch}else{0.0}
+            if($persisted -ge $remPersist -and ($nowEpoch - $lastRem) -ge 300){
+                $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+                if($isAdmin){
+                    $a.LastKernelRemediateEpoch=$nowEpoch
+                    try{
+                        $targetProc = Get-Process -Id $topPid -ErrorAction SilentlyContinue
+                        if($targetProc -and $targetProc.ProcessName -eq 'TiWorker' -and $targetProc.HandleCount -ge $remHandles){
+                            $npBefore = $a.KernelNonPagedMiB
+                            Stop-Process -Id $topPid -Force -ErrorAction Stop
+                            Start-Sleep -Milliseconds 1000
+                            $piAfter=New-Object AmeKernelPerfNative+PERFORMANCE_INFORMATION
+                            $piAfter.cb=[uint32][Runtime.InteropServices.Marshal]::SizeOf($piAfter)
+                            if([AmeKernelPerfNative]::GetPerformanceInfo([ref]$piAfter,$piAfter.cb)){
+                                $ps2=[double]$piAfter.PageSize.ToUInt64()
+                                $a.KernelNonPagedMiB=[math]::Round(($piAfter.KernelNonpaged.ToUInt64()*$ps2)/1MB,1)
+                                $a.KernelPagedMiB=[math]::Round(($piAfter.KernelPaged.ToUInt64()*$ps2)/1MB,1)
+                                $a.SystemHandles=[int]$piAfter.HandleCount
+                            }
+                            $a.KernelLeakSinceEpoch=$null
+                            $topName='';$topPid=0;$topHandles=0
+                            $msgRem=('AUTO-BONIFICA KERNEL: TiWorker.exe incastrato ('+('{0:N0}' -f $targetProc.HandleCount)+' handle) terminato in sicurezza. Non-Paged Pool: '+$npBefore+' -> '+$a.KernelNonPagedMiB+' MiB.')
+                            Write-AgentEvent @{type='kernel_leak_remediated';nonpaged_before=$npBefore;nonpaged_after=$a.KernelNonPagedMiB;message=$msgRem}
+                        }
+                    }catch{}
+                }
+            }
+        }else{
+            $a.KernelLeakSinceEpoch=$null
+        }
 
         $parts=@()
         if($a.KernelNonPagedMiB -ge $npAlert){
@@ -545,7 +582,8 @@ public static class AmeKernelPerfNative {
             $parts+=('Leak handle: ' + $topName + ' (PID ' + $topPid + ': ' + ('{0:N0}' -f $topHandles) + ' handle)')
         }
         if($parts.Count -gt 0){
-            $warnMsg='ALLERTA KERNEL: ' + ($parts -join ' | ') + '. Memoria kernel non comprimibile.'
+            $hint = if($topName -eq 'TiWorker' -and $topHandles -ge $remHandles){' Avvia come Amministratore per auto-bonifica o usa SBLOCCA_LEAK_TIWORKER.cmd.'}else{' Memoria kernel non comprimibile.'}
+            $warnMsg='ALLERTA KERNEL: ' + ($parts -join ' | ') + '.' + $hint
             $a.KernelPoolWarning=$warnMsg
             $lastEv=if($null -ne $a.LastKernelEventEpoch){[double]$a.LastKernelEventEpoch}else{0.0}
             if(($nowEpoch - $lastEv) -ge 300){

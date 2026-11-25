@@ -31,5 +31,8 @@
   "windows_defender_cache_flush_hours": 4,
   "kernel_pool_monitor": true,
   "kernel_nonpaged_alert_mib": 1024,
-  "process_handle_leak_threshold": 100000
+  "process_handle_leak_threshold": 100000,
+  "kernel_leak_auto_remediate": true,
+  "kernel_leak_remediate_handles": 150000,
+  "kernel_leak_persist_seconds": 120
 }

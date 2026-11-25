@@ -7,11 +7,11 @@ function Get-AgentConfig([string]$Path) {
         $v=$c.PSObject.Properties[$rule[0]].Value
         if($null -eq $v -or [double]::IsNaN([double]$v) -or [double]::IsInfinity([double]$v) -or [double]$v -ne [math]::Floor([double]$v) -or $v -lt $rule[1] -or $v -gt $rule[2]){throw ('Configurazione agente: valore non valido per '+$rule[0])}
     }
-    foreach($flag in @('automatic_windows_reclaim','automatic_internal_compact','automatic_browser_subprocesses','memory_compression_auto_flush','background_cpu_priority_demotion','kernel_pool_monitor')){
+    foreach($flag in @('automatic_windows_reclaim','automatic_internal_compact','automatic_browser_subprocesses','memory_compression_auto_flush','background_cpu_priority_demotion','kernel_pool_monitor','kernel_leak_auto_remediate')){
         if($null -eq $c.PSObject.Properties[$flag]){$c|Add-Member NoteProperty $flag $true -Force}
         elseif($c.$flag -isnot [bool]){throw ('Configurazione agente: flag booleano non valido per '+$flag)}
     }
-    foreach($opt in @(@('soft_pressure_percent',30,95,80),@('distributed_max_batch_processes',1,128,16),@('distributed_target_reclaim_mib',32,16384,2048),@('memory_compression_flush_hours',1,48,5),@('memory_compression_flush_threshold_mib',100,16384,1500),@('reclaim_process_pacing_ms',0,1000,60),@('background_cpu_rate_cap_percent',0,100,10),@('clamp_target_threshold_mib',64,65536,1200),@('kernel_nonpaged_alert_mib',256,32768,1024),@('process_handle_leak_threshold',10000,5000000,100000))){
+    foreach($opt in @(@('soft_pressure_percent',30,95,80),@('distributed_max_batch_processes',1,128,16),@('distributed_target_reclaim_mib',32,16384,2048),@('memory_compression_flush_hours',1,48,5),@('memory_compression_flush_threshold_mib',100,16384,1500),@('reclaim_process_pacing_ms',0,1000,60),@('background_cpu_rate_cap_percent',0,100,10),@('clamp_target_threshold_mib',64,65536,1200),@('kernel_nonpaged_alert_mib',256,32768,1024),@('process_handle_leak_threshold',10000,5000000,100000),@('kernel_leak_remediate_handles',50000,5000000,150000),@('kernel_leak_persist_seconds',30,1800,120))){
         if($null -eq $c.PSObject.Properties[$opt[0]]){$c|Add-Member NoteProperty $opt[0] $opt[3] -Force}
         else{
             $v=$c.PSObject.Properties[$opt[0]].Value
@@ -30,7 +30,7 @@ function New-AgentState($Config) {
         NativeClient=$null;ActiveObservations=@{};ProcessCooldowns=@{};ModifiedProcesses=@{};ClampedProcesses=@{};InternalCompactions=0;WindowsReclaims=0;BrowserSubprocessReclaims=0;RestoredProcesses=0;LastDistributedCycle=0.0;LastInternalCompact=0.0;
         CompressionFlushes=0;LastCompressionFlushEpoch=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();MemoryCompressionMiB=0.0;
         DefenderOptimized=$false;LastDefenderOptimizationEpoch=$null;DefenderMsMpEngWsMiB=0.0;
-        KernelNonPagedMiB=0.0;KernelPagedMiB=0.0;SystemHandles=0;KernelLeakProcess='';KernelLeakPid=0;KernelLeakHandles=0;KernelPoolWarning='';LastKernelCheckEpoch=$null;LastKernelEventEpoch=$null}
+        KernelNonPagedMiB=0.0;KernelPagedMiB=0.0;SystemHandles=0;KernelLeakProcess='';KernelLeakPid=0;KernelLeakHandles=0;KernelPoolWarning='';LastKernelCheckEpoch=$null;LastKernelEventEpoch=$null;KernelLeakSinceEpoch=$null;LastKernelRemediateEpoch=$null}
 }
 function Test-AgentHost([string]$HostName) {return $HostName.Length -le 253 -and $HostName -cmatch '^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$' -and $HostName.Contains('.') -and !$HostName.Contains('..')}
 function ConvertTo-AgentUtc($Value) {

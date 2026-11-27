@@ -862,6 +862,50 @@ function Poll-AgentInternalApiBus([double]$Now) {
                     ws_before = $defRes.msmpeng_ws_before
                     ws_after = $defRes.msmpeng_ws_after
                 }
+            }elseif($action -eq 'purge_kernel'){
+                $isAdminNow = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+                if(!$isAdminNow){
+                    $reply = @{
+                        ok = $false
+                        requires_admin = $true
+                        message = 'Richiesti privilegi Amministratore (UAC) per svuotare Standby List, File Cache e Kernel Working Set.'
+                    }
+                }else{
+                    $purgeScript = Join-Path $PSScriptRoot 'purge-kernel-memory.ps1'
+                    $purgeJson = (& $purgeScript -CleanLogs 2>$null | Select-Object -Last 1)
+                    $pRes = if($purgeJson){ $purgeJson | ConvertFrom-Json }else{ $null }
+                    # Svuota anche log eventi e telemetria precedente dell agente
+                    $script:agent.Recent = @()
+                    $evMain = Join-Path $script:agentDirectory 'agent-events-0.jsonl'
+                    try { [IO.File]::WriteAllText($evMain, '', (New-Object Text.UTF8Encoding($false))) } catch {}
+                    $script:agent.LastKernelCheckEpoch = $null
+                    Update-AmeKernelAndHandleTelemetry $script:agent
+                    if($script:agent.NativeClient){
+                        try{ [void]$script:agent.NativeClient.CompactCurrentProcess(32MB) }catch{}
+                    }
+                    $pMsg = if($pRes -and $pRes.message){ [string]$pRes.message }else{ 'Svuotamento memoria Kernel e pulizia log completati.' }
+                    Write-AgentEvent @{type='kernel_memory_purged';message=$pMsg}
+                    $script:agent.LastResult = @{utc=[DateTime]::UtcNow.ToString('o');outcome='kernel_purged';message=$pMsg}
+                    Write-AgentStatus
+                    $reply = @{
+                        ok = if($pRes){ [bool]$pRes.ok }else{ $true }
+                        requires_admin = $false
+                        message = $pMsg
+                        avail_gain_mib = if($pRes){ $pRes.avail_gain_mib }else{ 0 }
+                    }
+                }
+            }elseif($action -eq 'clear_logs'){
+                $script:agent.Recent = @()
+                $evMain = Join-Path $script:agentDirectory 'agent-events-0.jsonl'
+                try { [IO.File]::WriteAllText($evMain, '', (New-Object Text.UTF8Encoding($false))) } catch {}
+                if(![string]::IsNullOrWhiteSpace([string]$cmd.message)){
+                    Write-AgentEvent @{type='kernel_memory_purged';message=[string]$cmd.message}
+                    $script:agent.LastResult = @{utc=[DateTime]::UtcNow.ToString('o');outcome='kernel_purged';message=[string]$cmd.message}
+                }
+                $script:agent.LastKernelCheckEpoch = $null
+                Update-AmeKernelAndHandleTelemetry $script:agent
+                Write-AgentStatus
+                $reply = @{ok = $true}
             }
         }catch{$reply=@{ok=$false;error=$_.Exception.Message}}
         $script:agentApiBus.CompleteRequest($req.Id,($reply|ConvertTo-Json -Depth 6 -Compress))

@@ -102,6 +102,11 @@ $cBtnVioletActiveBorder= [Drawing.Color]::FromArgb(139, 92, 246)    # #8B5CF6
 $cBtnVioletActiveText  = [Drawing.Color]::FromArgb(237, 233, 254)   # #EDE9FE
 $cBtnVioletActiveHover = [Drawing.Color]::FromArgb(109, 40, 217)    # #6D28D9
 
+$cBtnAmberBg           = [Drawing.Color]::FromArgb(69, 39, 12)      # #45270C Deep Amber Kernel Action
+$cBtnAmberBorder       = [Drawing.Color]::FromArgb(217, 119, 6)     # #D97706
+$cBtnAmberText         = [Drawing.Color]::FromArgb(253, 230, 138)   # #FDE68A
+$cBtnAmberHover        = [Drawing.Color]::FromArgb(146, 64, 14)     # #92400E
+
 # --- Finestra Principale ---
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $adminTag = if ($isAdmin) { ' [AMMINISTRATORE]' } else { '' }
@@ -233,18 +238,19 @@ function Set-ButtonStyle(
     $b.FlatAppearance.MouseOverBackColor = $hover
 }
 
-$startBtn     = New-StyledButton 'Avvia Agente'             (New-Object Drawing.Size(125, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cTextDim              $cBtnBaseHover
-$stop         = New-StyledButton 'Ferma e Ripristina'      (New-Object Drawing.Size(155, 32)) $cBtnDangerBg      $cBtnDangerBorder      $cBtnDangerText        $cBtnDangerHover
-$restartBtn   = New-StyledButton 'Riavvia e Resetta'       (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
-$optimizeBtn  = New-StyledButton 'Ottimizza Ora'           (New-Object Drawing.Size(135, 32)) $cBtnPrimaryBg     $cBtnPrimaryBorder     $cBtnPrimaryText       $cBtnPrimaryHover
-$flushCompBtn = New-StyledButton 'Svuota Compressione'     (New-Object Drawing.Size(170, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
-$defenderBtn  = New-StyledButton 'Limita Defender'         (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
-$clampBtn     = New-StyledButton 'Modalita Gioco (Clamp)'  (New-Object Drawing.Size(190, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
-$startupBtn   = New-StyledButton 'Avvio Windows: OFF'      (New-Object Drawing.Size(155, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cTextDim              $cBtnBaseHover
-$export       = New-StyledButton 'Esporta Diagnosi'        (New-Object Drawing.Size(145, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
-$folder       = New-StyledButton 'Regole Config'           (New-Object Drawing.Size(125, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$startBtn      = New-StyledButton 'Avvia Agente'             (New-Object Drawing.Size(120, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cTextDim              $cBtnBaseHover
+$stop          = New-StyledButton 'Ferma e Ripristina'      (New-Object Drawing.Size(150, 32)) $cBtnDangerBg      $cBtnDangerBorder      $cBtnDangerText        $cBtnDangerHover
+$restartBtn    = New-StyledButton 'Riavvia e Resetta'       (New-Object Drawing.Size(140, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$optimizeBtn   = New-StyledButton 'Ottimizza Ora'           (New-Object Drawing.Size(130, 32)) $cBtnPrimaryBg     $cBtnPrimaryBorder     $cBtnPrimaryText       $cBtnPrimaryHover
+$flushCompBtn  = New-StyledButton 'Svuota Compressione'     (New-Object Drawing.Size(165, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$defenderBtn   = New-StyledButton 'Limita Defender'         (New-Object Drawing.Size(140, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$purgeKernelBtn= New-StyledButton 'Svuota Kernel & Log'     (New-Object Drawing.Size(170, 32)) $cBtnAmberBg       $cBtnAmberBorder       $cBtnAmberText         $cBtnAmberHover
+$clampBtn      = New-StyledButton 'Modalita Gioco (Clamp)'  (New-Object Drawing.Size(185, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$startupBtn    = New-StyledButton 'Avvio Windows: OFF'      (New-Object Drawing.Size(150, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cTextDim              $cBtnBaseHover
+$export        = New-StyledButton 'Esporta Diagnosi'        (New-Object Drawing.Size(140, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
+$folder        = New-StyledButton 'Regole Config'           (New-Object Drawing.Size(120, 32)) $cBtnBaseBg        $cBtnBaseBorder        $cBtnBaseText          $cBtnBaseHover
 
-foreach($btn in @($startBtn, $stop, $restartBtn, $optimizeBtn, $flushCompBtn, $defenderBtn, $clampBtn, $startupBtn, $export, $folder)){ [void]$buttons.Controls.Add($btn) }
+foreach($btn in @($startBtn, $stop, $restartBtn, $optimizeBtn, $flushCompBtn, $defenderBtn, $purgeKernelBtn, $clampBtn, $startupBtn, $export, $folder)){ [void]$buttons.Controls.Add($btn) }
 
 # --- RIGA 2: Card Dettaglio Interventi & Telemetria ---
 $infoPanel = New-Object Windows.Forms.Panel
@@ -578,9 +584,9 @@ function Update-AgentView {
             $npMiB = if($null -ne $dist.kernel_nonpaged_mib){[math]::Round([double]$dist.kernel_nonpaged_mib,0)}else{0}
             $lkName = if($dist.kernel_leak_process){[string]$dist.kernel_leak_process}else{'Kernel'}
             $lkHandles = if($dist.kernel_leak_handles){[math]::Round([double]$dist.kernel_leak_handles/1000,0)}else{0}
-            $cardSaving.Tag.Value.Text = ('ALLERTA KERNEL: ' + $npMiB + ' MiB NP')
+            $cardSaving.Tag.Value.Text = ('Kernel NP: ' + $npMiB + ' MiB (!)')
             $cardSaving.Tag.Value.ForeColor = if($npMiB -ge 1500 -or $lkHandles -ge 250){$cRed}else{$cAmber}
-            $cardSaving.Tag.Sub.Text = ('Leak: ' + $lkName + ' (' + $lkHandles + 'k handle) | Comp: ' + $compStr)
+            $cardSaving.Tag.Sub.Text = ('Leak: ' + $lkName + ' (' + $lkHandles + 'k h) | Comp: ' + $compStr)
         }else{
             $cardSaving.Tag.Value.Text = ('Win: ' + $winReclaims + ' | Web: ' + $browserReclaims)
             $cardSaving.Tag.Value.ForeColor = $cGreen
@@ -733,6 +739,63 @@ $defenderBtn.Add_Click({
         }
         Update-AgentView
     }catch{$lblIntervention.Text = 'Errore Defender: '+$_.Exception.Message}
+})
+
+$purgeKernelBtn.Add_Click({
+    try{
+        $lblIntervention.Text = 'Svuotamento Kernel Cache, Standby List e pulizia log in corso...'
+        $lblIntervention.ForeColor = $cAmber
+        $view.Refresh()
+        $purgeRes = $null
+        try {
+            $purgeRes = Invoke-AmeInternalApiCommand -Command @{command='purge_kernel'} -Root $PSScriptRoot
+        } catch {
+            $purgeRes = @{ ok = $false; requires_admin = $true }
+        }
+        if($purgeRes -and $purgeRes.requires_admin){
+            $lblIntervention.Text = 'Richiesta elevazione Amministratore (UAC) per svuotare il Kernel e i log...'
+            $view.Refresh()
+            $purgeScript = Join-Path $PSScriptRoot 'purge-kernel-memory.ps1'
+            $resFile = Join-Path ([IO.Path]::GetTempPath()) ('ame-kernel-purge-' + [guid]::NewGuid().ToString('N') + '.json')
+            $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            try{
+                $elev = Start-Process -FilePath $psExe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $purgeScript + '" -CleanLogs -ResultPath "' + $resFile + '"') -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                if($elev.ExitCode -eq 0){
+                    $pData = $null
+                    if(Test-Path -LiteralPath $resFile){
+                        try { $pData = Get-Content -LiteralPath $resFile -Raw | ConvertFrom-Json } catch {}
+                        try { [IO.File]::Delete($resFile) } catch {}
+                    }
+                    $finalMsg = if($pData -and $pData.message){ [string]$pData.message }else{ 'Svuotamento Kernel Cache, Standby List e pulizia log completati.' }
+                    try { [void](Invoke-AmeInternalApiCommand -Command @{command='clear_logs';message=$finalMsg} -Root $PSScriptRoot) } catch {}
+                    try { [void](Invoke-AmeInternalApiCommand -Command @{command='flush_compression'} -Root $PSScriptRoot) } catch {}
+                    $log.Text = ''
+                    $lblIntervention.Text = $finalMsg
+                    $lblIntervention.ForeColor = $cGreen
+                }else{
+                    try { if(Test-Path -LiteralPath $resFile){ [IO.File]::Delete($resFile) } } catch {}
+                    $lblIntervention.Text = 'Svuotamento Kernel non riuscito (codice ' + $elev.ExitCode + ').'
+                    $lblIntervention.ForeColor = $cRed
+                }
+            }catch{
+                try { if(Test-Path -LiteralPath $resFile){ [IO.File]::Delete($resFile) } } catch {}
+                $lblIntervention.Text = 'Elevazione UAC annullata: svuotamento Kernel e log non eseguito.'
+                $lblIntervention.ForeColor = $cAmber
+            }
+        }elseif($purgeRes -and $purgeRes.ok){
+            try { [void](Invoke-AmeInternalApiCommand -Command @{command='flush_compression'} -Root $PSScriptRoot) } catch {}
+            $log.Text = ''
+            $lblIntervention.Text = $(if($purgeRes.message){$purgeRes.message}else{'Svuotamento Kernel Cache e pulizia log completati.'})
+            $lblIntervention.ForeColor = $cGreen
+        }else{
+            $lblIntervention.Text = $(if($purgeRes -and $purgeRes.message){$purgeRes.message}else{'Impossibile svuotare la memoria Kernel.'})
+            $lblIntervention.ForeColor = $cAmber
+        }
+        Update-AgentView
+    }catch{
+        $lblIntervention.Text = 'Errore svuotamento Kernel: ' + $_.Exception.Message
+        $lblIntervention.ForeColor = $cRed
+    }
 })
 
 $clampBtn.Add_Click({

@@ -59,6 +59,16 @@ Dopo l'introduzione della *Cascade Decompression* (documentata in [`CHANGELOG_LA
 ### 2.6 Diagnostica Windows Servicing (`DIAGNOSI_SERVICING.cmd`)
 * Creati [`DIAGNOSI_SERVICING.cmd`](DIAGNOSI_SERVICING.cmd) ed [`engine/diagnose-servicing.ps1`](engine/diagnose-servicing.ps1) per eseguire con elevazione UAC il controllo di `TrustedInstaller`/`wuauserv`, segnali di riavvio in sospeso, `DISM /ScanHealth` (ed eventuale `/RestoreHealth`), `sfc /scannow`, errori recenti in `CBS.log` ed eventi Setup, salvando il report locale in `engine/reports/servicing-diagnosi.txt` (escluso dal tracciamento Git via `.gitignore`).
 
+### 2.7 Bottone Dashboard "Svuota Kernel & Log" (Nuova Funzionalità)
+* **Nuovo modulo [`engine/purge-kernel-memory.ps1`](engine/purge-kernel-memory.ps1):**
+  * Abilita i privilegi `SeProfileSingleProcessPrivilege` e `SeIncreaseQuotaPrivilege` nel token Windows.
+  * Esegue via API native NT (`NtSetSystemInformation(SystemMemoryListInformation)` e `SetSystemFileCacheSize`) lo svuotamento ordinato di: Kernel/System Working Sets, Modified Page List, Standby List, Low-Priority Standby List e System File Cache.
+  * Termina eventuali istanze `TiWorker.exe` incastrate con `>= 50.000` handle aperti e rimuove i file di log diagnostici/rotati obsoleti.
+* **Integrazione IPC & UI ([`engine/agent-runtime.ps1`](engine/agent-runtime.ps1), [`engine/agent-dashboard.ps1`](engine/agent-dashboard.ps1), [`engine/agent-model.ps1`](engine/agent-model.ps1)):**
+  * Aggiunto il nuovo pulsante ambra **`Svuota Kernel & Log`** direttamente nella Dashboard (con elevazione UAC automatica on-demand se l'agente è in modalità utente standard), azzeramento immediato della console eventi live (`purge_kernel` / `clear_logs`) e avvio contestuale del flush compressione.
+  * Compattata la visualizzazione di allerta nella Card `MEMORIA E RISPARMIO` (`Kernel NP: X MiB (!)`) per impedire il taglio verticale del testo.
+  * Impostato `LastCompressionFlushEpoch = $null` all'avvio per consentire il flush automatico immediato qualora la memoria compressa superi la soglia già all'apertura.
+
 ---
 
 ## 3. Riepilogo File Coinvolti
